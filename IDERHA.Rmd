@@ -1,0 +1,433 @@
+---
+title: "IDERHA"
+author: "JensD"
+date: "2024-05-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Uniqueness Assessment
+### 1. Identifying Completely Duplicated Rows
+
+This code will identify all rows in the data set that are complete duplicates. 
+Replace NAME_DATASET with actual OMOP data set name. 
+
+```{r, eval=FALSE}
+# Code to identify duplicated rows
+duplicates <- NAME_DATASET %>%
+  filter(duplicated(.) | duplicated(., fromLast = TRUE))
+
+# Calculate the total number of all cases in the original data set
+total_cases <- nrow(NAME_DATASET)
+
+# Calculate the number of duplicated entries
+number_of_duplicates <- nrow(duplicates)
+
+# Calculate percentages
+percentage_duplicated = number_of_duplicates / total_cases * 100
+percentage_unique = 100 - percentage_duplicated
+
+# Create a data frame for plotting
+summary_data <- data.frame(
+  Category = c("Unique", "Duplicated"),
+  Percentage = c(percentage_unique, percentage_duplicated)
+)
+```
+
+This code visualizes the duplicates to understand their distribution.
+
+```{r, eval=FALSE}
+# Visualize the distribution of duplicates if there are any
+ggplot(summary_data, aes(x = "", y = Percentage, fill = Category)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("Unique" = "skyblue", "Duplicated" = "red")) +
+  labs(title = "Proportion of Unique and Duplicated Entries", x = NULL, y = NULL) +
+  theme_void() +
+  theme(legend.title = element_blank()) +
+  annotate("text", x = 0, y = 0, label = sprintf("%.1f%%", percentage_duplicated), size = 6, fontface = "bold", hjust = 0.5)
+```
+
+The code below removes the duplicates, keeping only the first occurrence of each row.
+
+```{r, eval=FALSE}
+# Code to remove duplicated rows, keeping the first occurrence
+NAME_DATASET <- NAME_DATASET %>%
+  distinct()
+# The data set now contains unique records only
+```
+
+
+## Completeness Assessment
+### 1. Assessing completeness for essential variables
+
+The code will focus specific on the PATIENTS data set.
+Essential variables are:
+- Subject_id
+- Gender
+- Day of birth (dob)
+
+```{r, eval=FALSE}
+# Subset the data set to include only the columns of interest
+selected_columns <- PATIENTS[c("subject_id", "gender", "dob")]
+
+# Calculate the number of NA values in each selected column
+completeness <- sapply(selected_columns, function(x) sum(is.na(x)))
+
+# Create a data frame for visualization
+completeness_df <- data.frame(column = names(completeness), na_count = completeness)
+
+# Print completeness statistics
+completeness_df
+```
+
+We then visualize the completeness of the data set to identify any patterns of missing data.
+
+```{r, eval=FALSE}
+# Visualize missing data counts by column
+ggplot(completeness_df, aes(x = column, y = na_count, fill = na_count)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "blue", high = "red"
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Number of Missing Values Per Column in PATIENTS data set",
+       x = "Columns",
+       y = "Number of Missing Values")
+```
+
+All missing data should be clearly marked as "NA".
+
+```{r, eval=FALSE}
+# Ensure all missing data are explicitly marked as NA
+PATIENTS <- PATIENTS %>%
+  mutate(across(c(subject_id, gender, dob), ~replace_na(., NA)))
+
+# Check the adjustment - Optional, just for confirmation
+str(PATIENTS)
+```
+
+### 2. Assessing completeness in general
+
+The code will focus on all variables in the data set provided by the data source.
+Replace NAME_DATASET with actual OMOP data set name. 
+
+
+```{r, eval=FALSE}
+# Calculate the number of NA values in each column
+completeness <- sapply(NAME_dataset, function(x) sum(is.na(x)))
+
+# Create a data frame for visualization
+completeness_df <- data.frame(column = names(completeness), na_count = completeness)
+
+# Print completeness statistics
+completeness_df
+```
+
+We then visualize the completeness of the data set to identify any patterns of missing data.
+
+```{r, eval=FALSE}
+# Visualize missing data counts by column
+ggplot(completeness_df, aes(x = column, y = na_count, fill = na_count)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Number of Missing Values Per Column",
+       x = "Columns",
+       y = "Number of Missing Values")
+```
+
+All missing data should be clearly marked as "NA". 
+Replace NAME_DATASET with actual OMOP data set name. 
+
+```{r, eval=FALSE}
+# Ensure all missing data are explicitly marked as NA
+NAME_dataset <- NAME_dataset %>%
+  mutate(across(everything(), ~replace_na(., NA)))
+
+head(NAME_dataset)
+```
+
+### 3. Conditional completeness
+
+The code will focus specific on the PATIENTS data set.
+Conditional completeness checks for the PATIENTS data set:
+- If expire_flag = 1 then there should be a day of death (dod)
+
+```{r, eval=FALSE}
+# Assess conditional completeness in the PATIENTS dataset
+# Check for missing 'dod' where 'expire_flag' equals 1
+conditional_completeness <- PATIENTS %>%
+  filter(expire_flag == 1 & is.na(dod)) %>%
+  select(subject_id, expire_flag, dod)
+
+# View the results - showing the cases not meeting the condition
+print(conditional_completeness)
+
+num_conditional_completeness <- nrow(conditional_completeness)
+print(paste("Number of records with expire_flag = 1 and missing dod:", num_conditional_completeness))
+```
+
+All incorrect variables should be clearly marked as "NA".
+
+```{r, eval= FALSE}
+# Adjust potential errors in the PATIENTS dataset
+PATIENTS <- PATIENTS %>%
+  mutate(dod = if_else(expire_flag == 1 & is.na(dod), NA_real_, dod))
+
+# This will replace 'dod' with NA where 'expire_flag' is 1 and 'dod' is missing,
+# while leaving 'dod' as it is in all other cases.
+
+# Optional: Verify the changes
+summary(PATIENTS$dod)
+```
+
+## Consistency Assessment
+### Data type unit
+this code evaluates whether all data values are in the correct format as specified in the data dictionary.
+Replace NAME_DATASET with actual OMOP data set name. 
+
+```{r, eval = FALSE}
+# Define the expected types
+# This code is an example, complete towards the actual data types defined in the data dictionary
+expected_types <- c("numeric", "numeric", "character", "Date", "Date", "Date", "Date", "numeric")
+
+# Get actual types
+actual_types <- sapply(NAME_DATASET, class)
+
+# Compare actual types to expected
+data_type_check <- data.frame(
+  Column = names(NAME_DATASET),
+  Actual_Type = actual_types,
+  Expected_Type = expected_types,
+  Match = actual_types == expected_types
+)
+
+print(data_type_check)
+
+# Scoring: Calculate the percentage of correctly formatted data
+format_score <- NAME_DATASET %>%
+  summarise_all(~ mean(!is.na(.)) * 100) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "score")
+
+# Print the table with formatted scores
+print(format_score)
+```
+
+In the next step we will visualize this step.
+
+```{r, eval=FALSE}
+ggplot(format_score, aes(x = column, y = score, fill = column)) +
+  geom_col() +
+  scale_y_continuous() +
+  labs(title = "Consistency by type",
+       x = "",
+       y = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+In the the last step we will convert all columns to the demanded data type.
+
+```{r, eval=FALSE}
+# Convert columns to data type if necessary
+
+# Recheck the data types after conversion
+actual_types_after_conversion <- sapply(PATIENTS, class)
+data_type_check_after_conversion <- data.frame(
+  Column = names(PATIENTS),
+  Actual_Type = actual_types_after_conversion,
+  Expected_Type = expected_types,
+  Match = actual_types_after_conversion == expected_types
+)
+
+print(data_type_check_after_conversion)
+```
+
+### 2. Out of range
+This code checks whether numerical and categorical data fall within predefined ranges or match specified categories.
+
+```{r, eval=FALSE}
+# Example for numerical and categorical range checks
+# Assuming specific ranges or categories are defined for 'age' and 'gender'
+# Step to replace violations with NA
+NAME_DATASET <- NAME_DATASET %>%
+  mutate(
+    age = if_else(age < 1 | age > 150, NA_real_, age),
+    gender = if_else(gender %in% c("M", "F"), gender, NA_character_))
+
+# Assess the percentage of out-of-range or invalid values (post-correction)
+out_of_range_summary <- NAME_DATASET %>%
+  summarise(
+    subject_id_out_of_range = mean(is.na(age)) * 100,
+    gender_invalid = mean(is.na(gender)) * 100
+  )
+
+# Print summary
+print(out_of_range_summary)
+```
+
+Following code will provide a visual to present results.
+
+```{r, eval=FALSE}
+# Convert to long format for plotting
+long_format_summary <- pivot_longer(out_of_range_summary, 
+                                    cols = everything(), 
+                                    names_to = "measurement", 
+                                    values_to = "percentage")
+
+# Plot
+ggplot(long_format_summary, aes(x = measurement, y = percentage, fill = measurement)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(title = "Percentage of Out-of-Range and Invalid Values",
+       x = "Variable",
+       y = "Percentage Out of Range/Invalid") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### 3. Conflicting information
+
+This step examines for violations to data quality by applying inter dependency relationships that have been defined by using different variables. 
+This code will focus on the PATIENTS data set and will use data quality rule from the Date and time category:
+- Day of birth < Day of death
+
+```{r, eval=FALSE}
+# Define a function to check these rules, variable used here are examples
+# Define the function to check multiple rules
+check_rules <- function(dob, dod) {
+  # Ensure that the input dates are in the Date format
+  dob <- as.Date(dob)
+  dod <- as.Date(dod)
+  
+  # Rule 1: Date of birth should not be greater than date of death
+  rule1_violation <- dob > dod # additional rules can be defined in this section if necessary
+  
+  # Combine all rule violations using OR logic
+  any_violation <- rule1_violation # multiple rules can be combined here if necessary
+  
+  # Return TRUE if any rule is violated, FALSE otherwise
+  return(any_violation)
+}
+```
+
+Next, apply these rules to each row in your data set to check for violations, and then calculate the percentage of errors. 
+
+```{r, eval=FALSE}
+# Example usage of the function with a data frame
+PATIENTS$violations <- apply(PATIENTS, 1, function(row) {
+  check_rules(row["dob"], row["dod"])
+})
+
+# Replace values in the columns 'dob' if there is a violation
+PATIENTS <- PATIENTS %>%
+  mutate(
+    dob = if_else(violations, NA_real_, as.numeric(dob))
+  )
+
+# Calculate the percentage of violations
+error_percentage <- mean(PATIENTS$violations) * 100
+
+# Print the error percentage
+print(paste("Error Percentage: ", format(error_percentage, nsmall = 2), "%", sep = ""))
+```
+
+Last step, to visualize the data you might want to highlight where the violations occur. 
+
+```{r, eval=FALSE}
+# For example, if we use height and weight multivariable rules
+ggplot(NAME_DATASET, aes(x = height, y = weight, color = violations)) +
+  geom_point(alpha = 0.7) +
+  scale_color_manual(values = c("red", "green")) +
+  labs(title = "Data Quality Violations: Height vs. Weight",
+       x = "Height (cm)",
+       y = "Weight (kg)",
+       color = "Violation") +
+  theme_minimal()
+```
+
+## Correctness assessment
+
+Replace NAME_DATASET with actual OMOP data set name. 
+
+```{r, eval=FALSE}
+# Assuming your dataset NAME_DATASET has 'weight' in kilograms and 'height' in centimeters
+# Calculate BMI
+NAME_DATASET <- NAME_DATASET %>%
+  mutate(
+    height_m = height / 100,  # Convert height from cm to meters
+    bmi = weight / (height_m^2)  # Calculate BMI
+  )
+
+# Assess if BMI is within the range 10 to 70
+NAME_DATASET <- NAME_DATASET %>%
+  mutate(bmi_in_range = bmi >= 10 & bmi <= 70)
+
+# Extract rows where BMI is out of the specified range into a new data frame
+out_of_range_BMI <- NAME_DATASET %>%
+  filter(!bmi_in_range)
+```
+
+Final step is to visualize the results on a density plot. 
+
+```{r, eval=FALSE}
+ggplot(NAME_DATASET, aes(x = bmi)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  geom_vline(aes(xintercept = 10), color = "red", linetype = "dashed", size = 1) +
+  geom_vline(aes(xintercept = 70), color = "red", linetype = "dashed", size = 1) +
+  labs(title = "Density Plot of BMI Values",
+       subtitle = "Highlighted lines represent BMI thresholds at 10 and 70",
+       x = "BMI",
+       y = "Density") +
+  theme_minimal()
+```
+
+## Stability assessment
+
+First, you need to extract the necessary data from the OMOP data set. 
+For weight measurements, this data likely resides in the 'measurement' table. 
+You will need the:
+- Patient identifiers
+- Measurement values
+- Dates of these measurements
+
+```{r, eval=FALSE}
+# Example SQL query to run in your database management system to extract weight measurements
+# SELECT
+#     person_id AS patient_id,
+#     measurement_date AS date,
+#     value_as_number AS weight
+# FROM measurement
+# WHERE measurement_concept_id = [concept_id_for_weight]  # Replace with the actual concept ID for weight
+
+# Suppose this query results are loaded into R as a data frame called `weights`
+```
+
+Ensure that the date and weight columns are appropriately formatted (date format and numeric format respectively)
+
+```{r, eval=FALSE}
+# Convert date to Date object if not already
+weights$date <- as.Date(weights$date, format="%Y-%m-%d")
+
+# Ensure weight is numeric
+weights$weight <- as.numeric(weights$weight)
+```
+
+Now, apply the 'temporalEvol' function to analyze the temporal variability of weight measurements.
+
+```{r, eval=FALSE}
+# Analyzing temporal evolution of weight measurements
+result <- temporalEvol(data = weights,
+                       id = "patient_id",
+                       variable = "weight",
+                       date = "date",
+                       time_window = "month",  # Adjust based on desired temporal resolution
+                       date_format = "%Y-%m-%d")
+
+# Plot the results
+plot(result)
+```
+
+
+
