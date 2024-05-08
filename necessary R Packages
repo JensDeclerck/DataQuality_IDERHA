@@ -1,1 +1,16 @@
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("devtools")
 
+# Install the latest released version from CRAN
+install.packages("EHRtemporalVariability")
+
+# Download the latest development code of EHRtemporalVariability from Github using devtools with
+devtools::install_github("hms-dbmi/EHRtemporalVariability")
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(devtools)
+library(EHRtemporalVariability)
