@@ -119,6 +119,9 @@ This R package is build toward EHR data, but can be used on an OMOP dataset, but
 
 The code provides a step-by-step approach on how you might use the R package with an OMOP dataset, with as example focusing on a variable like weight, which is typically stored in the 'measurement' table. 
 
+For more details I am referring to the github page of the R package.
+https://github.com/hms-dbmi/EHRtemporalVariability
+
 
 
 
