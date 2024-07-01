@@ -1,0 +1,1363 @@
+---
+title: "DataQualityMethdology"
+author: "JensD"
+date: "2024-06-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# 1. Uniqueness 
+
+The primary objective of the Uniqueness dimension in data quality is to ensure that each record in the dataset is distinct and appriopriately represents a single entity or event without any redundancy. This dimension aims to identify and manage duplicated records which may arise due to data entry errors, merging of datasets, or other issues. 
+
+### 1.1. Identifying completely duplicated rows
+**Method**:
+
+The function 'Uniqueness_duplicated_rows' is designed to detect rows in the dataset that are entirely duplicated. It compares each row with every other row in the dataset to identify duplicates.
+
+```{r, eval=FALSE}
+Uniqueness_duplicated_rows <- function(data, data_name) {
+  total_rows <- nrow(data)
+  unique_rows <- nrow(distinct(data))
+  row_counts <- data %>% 
+    group_by_all() %>% 
+    tally() %>% 
+    ungroup()
+  duplicate_rows <- sum(row_counts$n) - nrow(row_counts)
+  duplicates_info <- row_counts %>% filter(n > 1)
+  message(paste("Dataset:", data_name))
+  message(paste("Total rows:", total_rows))
+  message(paste("Unique rows:", unique_rows))
+  message(paste("Duplicate rows:", duplicate_rows))
+  message("-----")
+  if(nrow(duplicates_info) > 0) {
+    message("Detailed duplicate information:")
+    print(duplicates_info)
+  }
+}
+```
+
+**Outcome**:
+
+The function outputs:
+
+- The total number of rows
+- The number of unique rows
+- The number of duplicate rows in the dataset
+
+If duplicates are found, it also provides detailed information about these duplicated rows. 
+
+**Actions taken**:
+
+If any duplicated rows are identified, these rows will be extracted and flagged for further examination. They will be excluded from further analysis to maintain the quality of the dataset. 
+
+These completely duplicated rows will be left out for further analysis. The function 'remove_completely_duplicated_rows' allows you to clean your dataset by removing the completely duplicated rows, ensuring you work with only unique data for further analysis. The 'clean_data' will have the duplicated rows removed and can be used for further analysis.
+
+```{r, eval=FALSE}
+remove_completely_duplicated_rows <- function(data) {
+  unique_data <- distinct(data)
+  return(unique_data)
+}
+
+# Remove completely duplicated rows
+clean_data <- remove_completely_duplicated_rows(data)
+
+# Display the cleaned data set
+print(clean_data)
+```
+
+
+### 1.2. Identifying identical visit identifiers with different values
+**Method**:
+
+The 'Uniqueness_duplicate_visit_identifiers' function focuses on identifying records with the same visit identifier but different values in other columns. This issue can occur in datasets where visit identifiers are supposed to be unique but are erroneously repeated with varying data. 
+
+```{r, eval=FALSE}
+Uniqueness_duplicate_visit_identifiers <- function(data, visit_id_col, focus_cols, data_name) {
+  # Select the columns to focus on, along with the visit identifier column
+  selected_data <- data %>%
+    select(all_of(visit_id_col), all_of(focus_cols))
+  
+  # Find records with the same visit identifier but different values in the selected columns
+  visit_counts <- selected_data %>%
+    group_by_at(visit_id_col) %>%
+    filter(n() > 1) %>%
+    distinct() %>%
+    ungroup()
+  
+  message(paste("Dataset:", data_name))
+  message(paste("Records with identical visit identifiers but different values in selected columns:", nrow(visit_counts)))
+  
+  # Detailed information about duplicates
+  if(nrow(visit_counts) > 0) {
+    message("Detailed information about duplicate visit identifiers:")
+    print(visit_counts)
+  }
+}
+
+# For example
+focus_columns <- c("subject_id", "drug_type", "drug")
+Uniqueness_duplicate_visit_identifiers(PRESCRIPTIONS, "hadm_id", focus_columns, "Prescriptions")
+```
+
+**Outcome**:
+
+The function outputs:
+- The number of records with identical visit identifiers but different values.
+- Detailed information about these records is provided for further inspection.
+
+**Actions taken**:
+
+Records identified through this process will be flagged and extracted for further examination to understand why different values are associated with the same visit identifier. These records will be excluded from further analysis until the discrepancies are resolved. 
+
+### 1.3. Identifying duplicate values with different visit identifiers
+**Method**:
+
+The 'Uniqueness_identical_data_different_visit_IDs' function identifies records where all data columns except the visit identifier are identical. This situation indicates that the same data has been recorded under different visit identifiers. 
+
+```{r, eval=FALSE}
+Uniqueness_identical_data_different_visit_IDs <- function(data, visit_id_col, focus_cols, data_name) {
+  # Select the columns to focus on, excluding the visit identifier column
+  selected_data <- data %>%
+    select(all_of(focus_cols))
+  
+  # Find records where the selected columns are identical
+  identical_data <- selected_data %>%
+    group_by_all() %>%
+    filter(n() > 1) %>%
+    distinct() %>%
+    ungroup()
+  
+  # Join back with the original data to get the visit identifiers
+  duplicates_with_different_ids <- identical_data %>%
+    left_join(data, by = names(selected_data))
+  
+  message(paste("Dataset:", data_name))
+  message(paste("Records with identical data in selected columns but different visit identifiers:", nrow(duplicates_with_different_ids)))
+  
+  # Detailed information about duplicates
+  if(nrow(duplicates_with_different_ids) > 0) {
+    message("Detailed information about identical data with different visit identifiers:")
+    print(duplicates_with_different_ids)
+  }
+}
+
+# Example
+focus_columns <- c("VALUE1", "VALUE2")
+Uniqueness_Identical_Data_Different_Visit_IDs(data, "HADM_ID", focus_columns, "Sample Data")
+```
+
+**Outcome**:
+
+The function outputs:
+- The number of records with identical data but different visit identifiers.
+- Provides detailed information about these records.
+
+**Actions taken**:
+
+Records identified through this process will be flagged and extracted for further examination to understand why different values are associated with the same visit identifier. These records will be excluded from further analysis until the discrepancies are resolved.  
+
+
+# 2. Completeness 
+### 2.1. Assessing completeness in the dataset
+**Objective**:
+
+The 'assess_completeness' function evaluates a dataset to identify missing values and ensures that all blank fields are properly marked as 'NA'. This function helps to quantify the extent of missing data and standardize the representation of missing values. 
+
+**Method**:
+
+```{r, eval=FALSE}
+assess_completeness <- function(df) {
+  # Convert all blank or empty fields to 'NA'
+  df <- df %>%
+    mutate(across(where(is.character), ~ na_if(.x, ""))) %>%
+    mutate(across(where(is.numeric), ~ na_if(as.character(.x), "") %>% as.numeric()))
+
+  # Detect missing values
+  missing_values <- is.na(df)
+
+  # Calculate the percentage of missing values for each column
+  missing_percentage <- colSums(missing_values) / nrow(df) * 100
+  missing_percentage_df <- data.frame(Column = names(missing_percentage), Missing_Percentage = missing_percentage)
+
+  # Visualize missing data patterns using a heatmap
+  heatmap_data <- df %>%
+    mutate_all(~ ifelse(is.na(.), 1, 0)) %>%
+    rownames_to_column() %>%
+    gather(key = "Column", value = "Missing", -rowname)
+
+  heatmap_plot <- ggplot(heatmap_data, aes(x = Column, y = rowname)) +
+    geom_tile(aes(fill = factor(Missing))) +
+    scale_fill_manual(values = c("0" = "white", "1" = "red"), name = "Missing") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title = "Heatmap of Missing Values", x = "Columns", y = "Rows")
+
+  # Visualize missing data patterns using a bar plot
+  bar_plot <- ggplot(missing_percentage_df, aes(x = reorder(Column, -Missing_Percentage), y = Missing_Percentage)) +
+    geom_bar(stat = "identity", fill = "blue") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title = "Percentage of Missing Values by Column", x = "Columns", y = "Percentage of Missing Values")
+
+  # Return a list of results
+  return(list(
+    Missing_Percentage = missing_percentage_df,
+    Heatmap_Plot = heatmap_plot,
+    Bar_Plot = bar_plot
+  ))
+}
+```
+
+**Outcome**:
+
+The heatmap provides a detailed view of the distribution of missing values across the dataset, helping to identify patterns and clusters of missing data. The bar plot offers a summary of the percentage of missing values for each column, highlighting columns with significant missing data issues.
+
+**Actions taken**:
+
+- All blank or empty fields in both character and numeric columns are converted to 'NA'. This standardization allows for uniform handling of missing data across the dataset.
+
+- In case of missing data, evaluate the dataset to identify the type of missingness present. By identifying the type of missingness, appropriate imputation or handling methods can be chosen.
+
+
+### 2.2. Defining the type of missing data
+**Introduction**: 
+
+In any dataset, missing data is a common issue that can significantly impact the results of an analysis. Understanding the nature and mechanism of missing data is crucial for selecting appropriate methods to handle it. There are three primary types of missing data mechanisms:
+
+##### Step 1: Assessing MCAR (Missing Completely at Random)
+**Definition**: 
+
+The missingness is entirely unrelated to both the observed data and the unobserved (missing) data.
+
+The missing data is a random subset of the entire dataset. This is the most desirable situation because the missing data does not introduce any bias.
+
+**Method**: 
+
+One approach to assess whether the data is MCAR is to perform the Chi-squared tests of independence. The Chi-squared test evaluates whether there is a significant association between the missingness of different variables in the dataset. The objective is to determine if the missingness in one variable is indepedent of the missingness in another variable. If the missingness is independent across all pairs of variables, the data can be considered MCAR, which is the simplest form of missing data to handle in statistical analyses. 
+
+```{r, eval=FALSE}
+# Function to perform Chi-Square test of independence
+perform_chi_square_test <- function(df) {
+  missing_matrix <- is.na(df)
+  chi_square_results <- list()
+  for (i in 1:(ncol(missing_matrix) - 1)) {
+    for (j in (i + 1):ncol(missing_matrix)) {
+      # Create contingency table
+      test_table <- table(missing_matrix[, i], missing_matrix[, j])
+      
+      # Check if the table has at least 2 unique values
+      if (nrow(test_table) > 1 && ncol(test_table) > 1) {
+        test_result <- chisq.test(test_table)
+        chi_square_results[[paste(names(df)[i], "_vs_", names(df)[j])]] <- test_result
+      } else {
+        chi_square_results[[paste(names(df)[i], "_vs_", names(df)[j])]] <- "Not enough variability in data to perform test"
+      }
+    }
+  }
+  return(chi_square_results)
+}
+```
+
+**Interpreting results**:
+
+- Null Hypothesis (H0): The missingness in one variable is indepedent of the missingness in another variable.
+- Alternative Hypothesis (H1): There is an association between the missingness in the two variables.
+- A p-value greater than 0,05 indicates that we do not reject the null hypothesis, suggesting that the missingness in the two variables is independent.
+- A p-value less than 0,05 indicates that we reject the null hypothesis, suggesting that there is an association between the missingness in the two variables. 
+- Variables with insufficient variability: The test could not be performed because the missingness pattern did not provide enough data points to conduct a valid test. This often occurs when the missingness is either very rare or very common across the variables. 
+- If the Chi-Square indicates that the missingness is not completely at random, further analysis is needed to determine if it is MAR or MNAR. 
+
+##### Step 2: Assessing MAR (Missing at Random)
+**Definition**: 
+
+The missingness is related to the observed data but not to the unobserved data. 
+
+The likelihood of data being missing can be explained by other observed variables. Techniques such as imputation can be used to handle MAR data, leveraging the relationships between variables. 
+
+**Method**: 
+
+To assess if the data is MAR, we analyze the relationship between missing data and observed data using visualizations and logistic regression analysis. 
+
+**Visualizing the relationship between missingness and observed data**
+
+```{r, eval=FALSE}
+# Function to analyze MAR by visualizing the relationship between missingness and observed data
+mar_test <- function(df) {
+  # Visualizing the pattern of missing data using gg_miss_upset
+  missing_pattern_plot <- gg_miss_upset(df)
+  
+  # Visualizing the proportion of missing data per case
+  missing_case_plot <- gg_miss_case(df) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title = "Proportion of Missing Data per Case", x = "Cases", y = "Proportion of Missing Data")
+  
+  # Visualizing the proportion of missing data per variable
+  missing_var_plot <- gg_miss_var(df) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title = "Proportion of Missing Data per Variable", x = "Variables", y = "Proportion of Missing Data")
+  
+  return(list(
+    Missing_Pattern_Plot = missing_pattern_plot,
+    Missing_Case_Plot = missing_case_plot,
+    Missing_Var_Plot = missing_var_plot
+  ))
+}
+```
+
+**Interpreting results**:
+
+- Missing pattern plot: This plot helps identify specific patterns of missingness across multiple variables. Consistent patterns may suggest that the missingness is related to other observed variables. 
+- Proportion of missing data per case: This plot shows the proportion of missing data for each case (row). High proportions of missing data in specific cases may indicate MAR if those cases share common observed characteristics. 
+- Proportion of missing data per variable: This plot shows the proportion of missing data for each variable (column). Variables with high proportion of missing data might be influenced by other observed variables, suggesting MAR.
+
+If specific patterns or relationships are found in these visualizations, it suggests that the data is likely MAR.
+
+
+**Performing logistic regression analysis**: 
+
+To further confirm if the data is MAR, we perform logistic regression analysis. This analysis helps identify if the missingness in a variable can be predicted by other observed variables. 
+
+```{r, eval=FALSE}
+# Function to perform logistic regression analysis
+perform_logistic_regression <- function(df, response_var, predictor_vars) {
+  # Create a binary indicator for missingness
+  df <- df %>%
+    mutate(!!paste0("missing_", response_var) := is.na(!!sym(response_var)))
+  
+  # Construct the formula for logistic regression
+  formula <- as.formula(paste0("missing_", response_var, " ~ ", paste(predictor_vars, collapse = " + ")))
+  
+  # Perform logistic regression
+  logit_model <- glm(formula, data = df, family = binomial)
+  model_summary <- summary(logit_model)
+  tidy_summary <- tidy(logit_model)
+  
+  return(list(
+    Model_Summary = model_summary,
+    Tidy_Summary = tidy_summary
+  ))
+}
+
+# Example usage
+# Replace `your_data` with your actual dataframe
+# Replace `response_variable` with the column name you are checking for missingness (e.g., "Height_cm")
+# Replace `predictor_variables` with the column names you are using as predictors (e.g., c("Age", "Gender"))
+
+# response_variable <- "Height_cm"
+# predictor_variables <- c("Age", "Gender")
+
+# regression_results <- perform_logistic_regression(your_data, response_variable, predictor_variables)
+# print(regression_results$Model_Summary)
+# print(regression_results$Tidy_Summary)
+```
+
+**Interpreting results**:
+
+- Model summary: The model summary provides an overview of the logistic regression results, including the coefficients, standard errors, z-values, and p-values for each predictor variable.
+- Tidy summary: The tidy summary presents the results in a more readable format, showing the estimated effect of each predictor variable on the missingness of the response variable.
+
+If the logistic regression analysis shows that the missingness in the reponse variable is significantly predicted by one or more observed variables (i.e., predictor variables have significant p-values), it suggests that the missingness is related to these observed variables. This confirms that the data is MAR.
+
+
+
+##### Step 3: Assessing MNAR (Missing Not at Random)
+**Definition**: 
+
+The missingness is related to the unobserved data itself.
+
+This means that the reason for the data being missing is directly related to the missing values. MNAR introduces bias and is the most challenging type of missing data to handle because traditional statistical methods cannot easily correct for the missingness.
+
+**Method**: 
+
+To assess MNAR, we use domain knowledge and visualizations to hypothesize potential reasons for missing data. This involves understanding the context of the data collection process and looking for patterns that suggest missingness is related to the unobserved data. 
+
+```{r, eval=FALSE}
+# Function to investigate MNAR based on domain knowledge
+mnar_test <- function(df) {
+  # For MNAR, it's often more about understanding the context of the data
+  # Here we can plot the distribution of missing values
+  missing_summary <- df %>%
+    summarise(across(everything(), ~ sum(is.na(.)))) %>%
+    pivot_longer(cols = everything(), names_to = "Variable", values_to = "Missing_Count")
+  
+  # Visualize the summary of missing values
+  mnar_plot <- ggplot(missing_summary, aes(x = Variable, y = Missing_Count)) +
+    geom_bar(stat = "identity", fill = "blue") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    labs(title = "Summary of Missing Values", x = "Variables", y = "Count of Missing Values")
+  
+  return(mnar_plot)
+}
+```
+
+**Interpreting results**:
+
+- Summary of missing values: The plot generated by the function shows the count of missing values for each variable in the dataset. By examining this plot, we can identify which variables have the highest counts of missing values.
+- Utilize domain knowledge to hypothesize why certain variables have high missingness. For example:
+    - Variables that are considered sensitive, such as income or 
+    medical diagnoses, might have higher misisngness because 
+    individuals are reluctant to provide this information.
+    - Variables might have high missingness under certain 
+    conditions. For instance, some medical tests might only be 
+    conducted if initial screenings indicate a potential problem,
+    leadins to missing data for those who did not undergo further
+    testing. 
+- Contextual analysis: Consider the context in which the data was collected. Missing data might occur systematically due to factors such as the design of the data collection process or external circumstances affecting the respondents. 
+
+If the analysis suggests that the missingness is related to unobserved data or specific conditions, it indicates that the data might be MNAR. Handling MNAR data often requires advanced methods such as sensitivity analysis or the use of external data sources to model the missingness. 
+
+**Actions taken**:
+
+The final action is to document which type of missing data we are facing. This documentation should include:
+
+- Summary of the findings. A clear summary of the findings from the MCAR, MAR, and MNAR assessments.
+- Visualizations, inclusion of relevant plots and regression summaries that illustrates the nature of the missing data.
+- Implications. A discussion on the implications of the type of missing data identified and how it might impact subsequent analyses.
+- Recommended strategies for handling the identified type of missing data, including imputation methods, model adjustments, or further data collection efforts.
+
+# 3. Consistency
+### 3.1. Consistency by type
+
+**Introduction**:
+
+This part of the methdology assesses the consistency of data types within the dataset. Ensuring that each column adheres to the expected data type is crucial for maintaining the quality of the structured datasets. Inconsistencies in data types can lead to errors in data processing, analysis, and interpretation. This section focuses on verifying that each variable in the dataset conforms to its predefined format, as specified in a data dictionary of available. 
+
+**Examine the structure of the data frame**:
+
+The 'str()' or 'check_data_types' function is used to assess the structure of the data frame by identifying the data types of each column.
+
+```{r, eval=FALSE}
+check_data_types <- function(df) {
+  data_types <- sapply(df, class)
+  data_frame_summary <- data.frame(Column = names(data_types), DataType = data_types)
+  
+  # Print summary
+  print(data_frame_summary)
+  
+  # Return summary data frame
+  return(data_frame_summary)
+}
+```
+
+The function outputs a summary data frame listing each column and its corresponding data type. This provides a clear overview of the data frame's structure.
+
+**Compare with the data dictionary**:
+
+The 'compare_data_types' function compares the actual data types in the data frame with the expected data types defined in a data dictionary.
+
+```{r, eval=FALSE}
+# Example data dictionary
+data_dictionary <- data.frame(
+  Column = c("PatientID", "Name", "Gender", "Height_cm", "Weight_kg", "Bloodtype", "Diagnosis", "LastVisit", "Smoker"),
+  ExpectedType = c("character", "character", "numeric", "numeric", "numeric", "character", "character", "Date", "logical")
+)
+
+# General function to check data types in a data frame and compare with data dictionary
+compare_data_types <- function(df, data_dict) {
+  # Determine the actual data types of the columns in the data frame
+  actual_data_types <- sapply(df, class)
+  actual_data_frame_summary <- data.frame(Column = names(actual_data_types), ActualType = actual_data_types)
+  
+  # Merge with the data dictionary to compare the actual data types with the expected types
+  comparison_df <- merge(data_dict, actual_data_frame_summary, by = "Column", all.x = TRUE)
+  
+  # Debugging: Print out the data frames used for merging
+  print("Data Dictionary:")
+  print(data_dict)
+  print("Actual Data Frame Summary:")
+  print(actual_data_frame_summary)
+  
+  # Handle potential mismatches
+  if (nrow(comparison_df) == 0) {
+    stop("No matching columns found between the data frame and the data dictionary.")
+  }
+  
+  # Check if the data types match
+  comparison_df$Match <- comparison_df$ExpectedType == comparison_df$ActualType
+  
+  # Print the comparison summary
+  print(comparison_df)
+  
+  # Return the comparison data frame
+  return(comparison_df)
+}
+```
+
+The function outputs:
+
+- A comparison summary that includes the column names.
+
+- Their actual data types.
+
+- A match indicator.
+
+This summary highlights any inconsistencies between the actual data types in the data frame and the expected data types defined in the data dictionary.
+
+**Actions taken**:
+
+Columns with mismatched data types will be altered to match the specifications in the data dictionary to proceed during further analysis. Mismatched rows/columns will be flagged for further investigation and correction. Resolving these discrepancies is essential for ensuring the dataset's consistency and quality, which is crucial for accurate data analysis and decision-making.
+
+### 3.2. Consistency by range
+
+**Introduction**:
+
+Consistency by range involves ensuring that data values fall within expected ranges. This is particularly important for maintaining the qualitey of both numeric and categorical data. By verifying that data valies are within acceptable limits, we can identify anomalies and potential errors that may affect data analysis and decision-making. 
+
+##### Numeric data type
+**Objective**: 
+
+Assessing the consistency of numeric data involves calculating descriptive statistics and identifying potential outliers within the data. This ensures that numeric values fall within expected ranges and helps to detect any anomalies. 
+
+**Calculate descriptive statistics**:
+
+Descriptive statistics provide a summary of the data, includng measures of central tendency and dispersion. This helps to understand the distribution and variability of the numeric data. 
+  
+```{r, eval=FALSE}
+Consistency_by_range_NUMERIC <- function(data) {
+  
+  # Helper function to calculate mode
+  get_mode <- function(v) {
+    uniqv <- unique(v)
+    uniqv[which.max(tabulate(match(v, uniqv)))]
+  }
+  
+  # Select numeric columns
+  numeric_data <- data %>% select(where(is.numeric))
+  
+  # Calculate statistics
+  stats <- numeric_data %>%
+    map_df(~ data.frame(
+      Mean = mean(.x, na.rm = TRUE),
+      Median = median(.x, na.rm = TRUE),
+      Mode = get_mode(.x),
+      Range = paste(range(.x, na.rm = TRUE), collapse = " - "),
+      Variance = var(.x, na.rm = TRUE),
+      SD = sd(.x, na.rm = TRUE)
+    ), .id = "Variable")
+  
+  return(stats)
+}
+```
+
+**Identify IQR outliers**:
+
+The interquartile range (IQR) method is used to detect outliers. Values that fall below the lower bound or above the upper bound of the IQR are considered outliers.
+
+```{r, eval=FALSE}
+iqr_outliers <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  x[x < lower_bound | x > upper_bound]
+}
+```
+
+**Visualize data using a boxplot**:
+
+Boxplots are used to visualize the distribution of numeric data and highlight any outliers. 
+
+```{r, eval=FALSE}
+# Example usage with a hypothetical data frame 'healthcare_data'
+# Calculate descriptive statistics
+Consistency_by_range_NUMERIC(healthcare_data)
+
+# Detect outliers in a specific numeric column
+iqr_outliers(healthcare_data$Weight_kg)
+
+# Visualize data using a boxplot
+boxplot(healthcare_data$Weight_kg, main = "Boxplot of Weight (kg)", ylab = "Weight (kg)")
+```
+
+**Handling multiple variables in a single data frame**:
+
+When dealing with a data frame containing multiple different values per variable, it is necessary to extract each variable separately before performing descriptive statistics. This ensures that the analysis is specific to each variable and provides accurate insights. 
+
+```{r, eval=FALSE}
+extract_variable <- function(data, itemid, columns_to_select) {
+  extracted_data <- data %>%
+    filter(itemid == itemid) %>%
+    select(all_of(columns_to_select))
+  
+  return(extracted_data)
+}
+
+# Example usage with a hypothetical data frame 'LABEVENTS'
+# Extracting heart rate (example itemid = 51221)
+heart_rate_data <- extract_variable(LABEVENTS, 51221, c("subject_id", "value", "valuenum", "valueuom", "flag"))
+```
+
+**Data dictionary indicating ranges**:
+
+Ensure that the actial values fall within the predefined ranges specified in a data dictionary. 
+
+```{r, eval=FALSE}
+# Example data dictionary with specified ranges
+data_dictionary_ranges <- data.frame(
+  Column = c("Height_cm", "Weight_kg", "BloodPressure_systolic", "BloodPressure_diastolic"),
+  MinValue = c(50, 30, 90, 60),
+  MaxValue = c(250, 200, 180, 120)
+)
+
+# Function to assess numeric columns against specified ranges
+assess_ranges <- function(data, data_dict) {
+  results <- list()
+  
+  # Loop through each entry in the data dictionary
+  for (i in 1:nrow(data_dict)) {
+    column_name <- data_dict$Column[i]
+    min_value <- data_dict$MinValue[i]
+    max_value <- data_dict$MaxValue[i]
+    
+    # Check if the column exists in the data frame
+    if (column_name %in% colnames(data)) {
+      actual_values <- data[[column_name]]
+      
+      # Identify values outside the specified range
+      out_of_range <- actual_values[actual_values < min_value | actual_values > max_value]
+      
+      # Store results
+      results[[column_name]] <- list(
+        MinValue = min_value,
+        MaxValue = max_value,
+        OutOfRange = out_of_range,
+        OutOfRangeCount = length(out_of_range)
+      )
+    }
+  }
+  
+  return(results)
+}
+
+# Example usage with a hypothetical data frame 'healthcare_data'
+# Assess ranges based on the data dictionary
+range_assessment <- assess_ranges(healthcare_data, data_dictionary)
+print(range_assessment)
+```
+
+**Explanation of the outcome**:
+
+The functions output:
+- Descriptive statistics for numeric columns.
+- Identify potential outliers.
+- Ensure valies fall within predefined ranges.
+
+**Actions taken**:
+
+Numeric columns with values outside the expected ranges or identified as outliers will be flagged for further examination and correction. 
+
+##### Categorical data type
+**Objective**:
+
+Assessing the consistency of categorical data involves calculating the unique counts and frequencies of each categorical column. This ensures that categorical variables have expected values and helps to detect any anomalies. 
+
+**Method**:
+
+Step 1: Identify categorical columns
+
+Identify columns in the data frame that contain categorical data (factors and character columns).
+
+Step 2: Calculate unique counts and frequencies
+
+For each categorical column, calculate the number of unique values and the frequency of each unique value. 
+
+```{r, eval=FALSE}
+Consistency_by_range_CATEGORICAL <- function(data) {
+  # Identify categorical columns (factors and character columns)
+  categorical_columns <- data %>% select(where(is.factor) | where(is.character))
+  
+  # Initialize a list to store the results
+  results <- list()
+  
+  # Loop through each categorical column to calculate unique counts and frequencies
+  for (col in colnames(categorical_columns)) {
+    unique_count <- n_distinct(categorical_columns[[col]], na.rm = TRUE)
+    frequencies <- categorical_columns %>%
+      count(!!sym(col), name = "Frequency") %>%
+      arrange(desc(Frequency))
+    
+    results[[col]] <- list(
+      Unique_Count = unique_count,
+      Frequencies = frequencies
+    )
+  }
+    return(results)
+}
+```
+
+**Explanation of the outcome**:
+
+The function outputs the number of unique values and the frequency of each unique value for categorical columns. This helps to identify any anomalies in the categorical data.
+
+**Actions taken**:
+
+Categorical columns with unexpected unique values or frequencies will be flagged for further examination and correction. 
+
+##### POSIXct (datetime) data type
+**Objective**:
+
+When dealing with POSIXct (datetime) data types, it is essential to assess the intervals between each measurement for each patient. This ensures that the datetime values are consistent with the expected temporal patterns and can help identify any anomalies or irregularities in the data. 
+
+**Method**:
+
+Step 1: Extract and sort datetime columns for each patient.
+
+This ensures that time intervals are calculated correctly.
+
+Step 2: Calculate time intervals between consecutive measurements.
+
+Identify any irregularities or anomalies in the time interval between measurements. 
+
+```{r, eval=FALSE}
+assess_time_intervals_per_patient <- function(data, patient_id_column, datetime_column) {
+  # Ensure the datetime column is in POSIXct format
+  data[[datetime_column]] <- as.POSIXct(data[[datetime_column]])
+  
+  # Sort the data by patient ID and datetime column
+  data <- data %>% arrange(!!sym(patient_id_column), !!sym(datetime_column))
+  
+  # Calculate time intervals between consecutive measurements for each patient
+  data <- data %>% group_by(!!sym(patient_id_column)) %>%
+    mutate(Time_Interval = difftime(lead(!!sym(datetime_column)), !!sym(datetime_column), units = "secs")) %>%
+    ungroup()
+  
+  # Calculate start date, end date, and average time interval for each patient
+  summary_data <- data %>% group_by(!!sym(patient_id_column)) %>%
+    summarise(
+      Start_Date = min(!!sym(datetime_column), na.rm = TRUE),
+      End_Date = max(!!sym(datetime_column), na.rm = TRUE),
+      Average_Time_Interval = mean(Time_Interval, na.rm = TRUE)
+    ) %>%
+    ungroup()
+  
+  return(list(Data_With_Intervals = data, Summary = summary_data))
+}
+
+# Example usage with a hypothetical data frame 'healthcare_data'
+# and columns 'subject_id' (patient ID) and 'measurement_time' (datetime)
+# Assess time intervals between measurements for each patient
+result <- assess_time_intervals_per_patient(healthcare_data, "subject_id", "measurement_time")
+
+# Extract the detailed data and summary
+detailed_data <- result$Data_With_Intervals
+summary_data <- result$Summary
+```
+
+**Explanation of the outcome**:
+
+The function outputs detailed data with calculated time intervals and a summary of the start date, end date, and average time interval for each patient. This helps to identify any irregularities in the datetime data.
+
+**Actions taken**:
+
+Patients with irregular time intervals or datetime values outside the expected patterns will be flagged for further examination and correction. 
+
+
+### 3.3. Consistency by multivariate rule
+##### Temporal consistency
+**Objective**:
+
+Temporal consistency is crucial for ensuring that the chronological order of events or measurements is logical and follows the expected sequence. This can be assessed both within a single data frame and across multiple data frames. 
+
+**Method**:
+
+1. Temporal consistency within a single data frame
+
+To assess temporal consistency within a single data frame, we verify that the end date is not earlier than the start date for each record. This ensures that each event or measurement has a valid time interval. 
+
+```{r, eval=FALSE}
+Consistency_MV_temporal_single_dateframe <- function(data, start_col, end_col) {
+  # Convert to Date if necessary
+  data <- data %>%
+    mutate(across(c(start_col, end_col), as.Date))
+  
+  # Add a column to flag temporal inconsistencies
+  data <- data %>%
+    mutate(Temporal_Consistency = ifelse(get(end_col) >= get(start_col), "Consistent", "Inconsistent"))
+  
+  # Count the number of inconsistent records
+  num_inconsistent <- sum(data$Temporal_Consistency == "Inconsistent", na.rm = TRUE)
+  
+  # Print the number of inconsistent records
+  if (num_inconsistent > 0) {
+    print(paste("There are", num_inconsistent, "temporal inconsistencies in the data."))
+  } else {
+    print("There are no temporal inconsistencies in the data.")
+  }
+  
+  # Return the dataframe with the new Temporal_Consistency column
+  return(data)
+}
+```
+
+2. Temporal consistency across multiple data frames
+
+To assess temporal consistency across multiple data frames, we compare data values from two data frames based on a common identifier (e.g., patient ID). This ensures that the temporal sequence between related events in different data frames is logical. 
+
+```{r, eval=FALSE}
+Consistency_MV_temporal_multiple_dateframes <- function(df1, df2, 
+                                                 id_col_df1, date_col_df1, 
+                                                 id_col_df2, date_col_df2) {
+  # Merge dataframes on the patient identifier
+  merged_df <- merge(df1, df2, 
+                     by.x = id_col_df1, by.y = id_col_df2)
+  
+  # Ensure the date columns are in Date format
+  merged_df <- merged_df %>%
+    mutate(across(all_of(c(date_col_df1, date_col_df2)), as.Date))
+  
+  # Add a column to flag temporal inconsistencies
+  merged_df <- merged_df %>%
+    mutate(Temporal_Consistency = ifelse(get(date_col_df2) >= get(date_col_df1), 
+                                         "Consistent", "Inconsistent"))
+  
+  # Count the number of inconsistent records
+  num_inconsistent <- sum(merged_df$Temporal_Consistency == "Inconsistent", na.rm = TRUE)
+  
+  # Print the number of inconsistent records
+  if (num_inconsistent > 0) {
+    print(paste("There are", num_inconsistent, "temporal inconsistencies in the data."))
+  } else {
+    print("There are no temporal inconsistencies in the data."))
+  }
+  
+  # Return the merged dataframe with the new Temporal_Consistency column
+  return(merged_df)
+}
+```
+
+**Actions taken**:
+
+- All records with identified temporal inconsistencies are flagged for further investigation. 
+- Rows with identified inconsistencies are extracted from the dataset for detailed review. These extracted rows are set aside to determine the cause of the inconsistency and will not be included in further analysis until this is resolved.
+
+
+##### Conditional consistency (If-Then rules)
+**Objective**:
+
+Conditional consistency ensures that the presence or value of one variable logically depends on another variable. For example, if a drug is recorded, there should be a corresponding drug type. 
+
+**Method**:
+
+To assess conditional consistency, we verify that records meeting certain conditions also meet related conditions. For example, if a drug is present, there should be a non-missing drug type. 
+
+```{r, eval=FALSE}
+Consistency_MV_conditional <- function(data, condition_col, dependent_col) {
+  # Check if there are any instances where the condition is met but the dependent column is missing
+  inconsistent_records <- data %>%
+    filter(!is.na(get(condition_col)) & is.na(get(dependent_col)))
+  
+  # Count the number of inconsistent records
+  num_inconsistent <- nrow(inconsistent_records)
+  
+  # Print the number of inconsistent records
+  if (num_inconsistent > 0) {
+    print(paste("There are", num_inconsistent, "conditional inconsistencies in the data."))
+  } else {
+    print("There are no conditional inconsistencies in the data.")
+  }
+  
+  # Return the dataframe with the inconsistent records
+  return(inconsistent_records)
+}
+
+# Example usage with a hypothetical data frame 'healthcare_data'
+# Assess conditional consistency where 'drug' column should have a corresponding 'drug_type'
+inconsistent_records <- Consistency_MV_conditional(healthcare_data, "drug", "drug_type")
+print(inconsistent_records)
+```
+
+**Explanation of the outcome**:
+
+The function outputs the records where the condition is met but the dependent is missing. It also prints the number of such inconsistent records.
+
+**Actions taken**:
+
+- All records with identified conditional inconsistencies are flagged for further investigation. 
+- Rows with identified inconsistencies are extracted from the dataset for detailed review. These extracted rows are set aside to determine the cause of the inconsistency and will not be included in further analysis until this is resolved.
+
+# 4. Correctness
+
+TO DO!!!
+
+
+
+# 5. Stability
+### 5.1. Longitudinal plausibility score
+**Objective**:
+
+The longitudinal plausibility score is designed to assess the plausibility of changes in measurements for individual patients over time. This score identifies implausible changes in consecutive measurements, which may indicate potential errors or anomalies in the data. By detecting and analyzing these implausible changes, the score helps ensure the stability of recorded values. This, in turn, maintains the overall quality of the data at the individual level by flagging erroneus entries for further review and correction. 
+
+**Method**:
+
+Step 1: Filter for specific measurements
+
+Extract specific measurements from the data frame for analysis. In this example, heart rate measurements (itemid == 220045) are extracted from the 'CHARTEVENTS' data frame in the MIMIC dataset.
+
+```{r, eval=FALSE}
+heart_rate <- CHARTEVENTS %>%
+  filter(itemid == 220045) %>%
+  select(subject_id, charttime, valuenum)
+
+# Converts the 'charttime' column to 'POSTIXct' format using 'ymd_hms'.
+heart_rate$charttime <- ymd_hms(heart_rate$charttime)
+
+# Arranges the data by 'subject_id' and 'charttime' for proper temporal analysis.
+heart_rate <- heart_rate %>%
+  arrange(subject_id, charttime)
+```
+
+The filtered data frame contains only the relevant heart rate measurements, sorted by patient ID and timen ready for plausibility analysis.
+
+Step 2: Calculate plausibility score
+
+Define a finction to calculate the plausibility score based on a defined threshold. A plausibility score of 0 indicates an implausible change, while a score of 1 indicates a plausible change. 
+
+```{r, eval=FALSE}
+# Defines a function to calculate the plausibility score based on a defined threshold. A plausibility score of 0 indicates an implausible change, while a score of 1 indicates a plausible change. 
+calculate_plausibility_score <- function(df, threshold) {
+  df <- df %>%
+    arrange(charttime) %>%
+    mutate(diff = c(NA, diff(valuenum)),
+           plausibility_score = ifelse(abs(diff) > threshold, 0, 1))
+  return(df)
+}
+
+# Define a threshold for implausible changes
+threshold <- 35 # serves as an example, adjust depending on use case. 
+
+# Calculate plausibility scores for each patient
+heart_rate <- heart_rate %>%
+  group_by(subject_id) %>%
+  do(calculate_plausibility_score(., threshold)) %>%
+  ungroup()
+```
+
+The data frame is updated with a new column indicating the plausibility score for each measuremtn change.
+
+Step 3: Summarize population-level shifts
+
+Calculate and plot the mean plausibility score over time to identify population-level shifts. 
+
+```{r, eval=FALSE}
+# Summarize population-level shifts
+population_shifts <- heart_rate %>%
+  filter(!is.na(plausibility_score)) %>%
+  group_by(charttime) %>%
+  summarise(mean_plausibility_score = mean(plausibility_score))
+
+# Plot the population-level shifts
+ggplot(population_shifts, aes(x = charttime, y = mean_plausibility_score)) +
+  geom_line() +
+  labs(title = "Population-Level Shifts in Heart Rate Measurements",
+       x = "Time",
+       y = "Mean Plausibility Score") +
+  theme_minimal()
+```
+
+The plot provides a visual representation of how the plausibility of heart rate measurements changes over time at the population level. 
+
+Step 4: Identify and extract implausible changes
+
+Extract all rows where the plausibility score is 0, indicating implausible changes.
+
+```{r, eval=FALSE}
+# Extract all rows where the plausibility score is 0 (implausible changes)
+implausible_changes <- heart_rate %>%
+  filter(plausibility_score == 0)
+print(implausible_changes)
+```
+
+The extracted data frame contains records with implausibile changes for further review and correction.
+
+Step 5: Calculate descriptive statistics for plausibility score
+
+Calculate descriptive statistics to provide an overview of the plausibility scores and heart rate measurements.
+
+```{r, eval=FALSE}
+# Calculate descriptive statistics for the plausibility scores
+plausibility_stats <- heart_rate %>%
+  summarise(
+    total_records = n(),
+    total_implausible = sum(plausibility_score == 0, na.rm = TRUE),
+    total_plausible = sum(plausibility_score == 1, na.rm = TRUE),
+    percentage_implausible = (total_implausible / total_records) * 100,
+    percentage_plausible = (total_plausible / total_records) * 100,
+    mean_value = mean(valuenum, na.rm = TRUE),
+    sd_value = sd(valuenum, na.rm = TRUE),
+    median_value = median(valuenum, na.rm = TRUE),
+    min_value = min(valuenum, na.rm = TRUE),
+    max_value = max(valuenum, na.rm = TRUE)
+  )
+```
+
+The summary provides a statistical overview if the plausibility scores and heart rate measurements, highlighting the extent of implausible changes. 
+
+Step 6: Visualize longitudinal plausibility for multiple patients
+
+Create a line plot of heart rate measurements over time for all patients, highlighting implausible changes.
+
+```{r, eval=FALSE}
+ggplot(heart_rate, aes(x = charttime, y = valuenum, group = subject_id)) +
+  geom_line(color = "blue", alpha = 0.5) +
+  geom_point(data = heart_rate %>% filter(plausibility_score == 0), 
+             aes(x = charttime, y = valuenum), 
+             color = "red", 
+             size = 2, 
+             alpha = 0.8) +
+  labs(title = "Implausible Changes in Heart Rate Measurements Across All Patients",
+       x = "Time",
+       y = "Heart Rate (bpm)") +
+  theme_minimal()
+```
+
+The plot provides a comprehensive view of heart rate measurements across all patients, with implausible changes highlighted for easy identification.
+
+### 5.2. Longitudinal plausibility score for multiple measurements for one specific patient
+**Objective**:
+
+This part in the assessment has the same objective, but the code is focussing now on one single patient. 
+
+**Method**:
+
+Step 1: Filter for specific measurements for one patient
+
+Extract specific measurements from the data frame for a single patient for analysis. In this example, heart rate measurements (itemid == 220045) are extracted from the 'CHARTEVENTS' data frame in the MIMIC dataset for a single patient (subject_id).
+
+```{r, eval=FALSE}
+heart_rate_patient <- CHARTEVENTS %>%
+  filter(itemid == 220045 & subject_id == specific_patient_id) %>%
+  select(subject_id, charttime, valuenum)
+
+heart_rate_patient$charttime <- ymd_hms(heart_rate_patient$charttime)
+
+heart_rate_patient <- heart_rate_patient %>%
+  arrange(charttime)
+```
+
+The filtered data frame contains only the relevant heart rate measurements for the specific patient, sorted by time, ready for plausibility analysis.
+
+Step 2: Calculate plausibility scores for one patient
+
+Define a function to calculate the plausibility score based on a defined threshold. A plausbility score of 0 indicates an implausible change, while a score of 1 indicates a plausible change. 
+
+```{r, eval=FALSE}
+calculate_plausibility_score <- function(df, threshold) {
+  df <- df %>%
+    arrange(charttime) %>%
+    mutate(diff = c(NA, diff(valuenum)),
+           plausibility_score = ifelse(abs(diff) > threshold, 0, 1))
+  return(df)
+}
+
+threshold <- 35 # Example threshold, adjust as needed
+
+heart_rate_patient <- calculate_plausibility_score(heart_rate_patient, threshold)
+```
+
+The data frame is updated with a new column indicating the plausibility score for each measurement change.
+
+Step 3: Identify and extract implausible changes for one patient
+
+Extract all rows where the plausibility score is 0, indicating implausible changes. 
+
+```{r, eval=FALSE}
+implausible_changes_patient <- heart_rate_patient %>%
+  filter(plausibility_score == 0)
+print(implausible_changes_patient)
+```
+
+The extracted data frame contains records with implausible changes for further review and correction. 
+
+Step 4: Calculate descriptive statistics for plausibility scores for one patient
+
+Calculate descriptive statistics for plausibility scores for one patient.
+
+```{r, eval=FALSE}
+plausibility_stats_patient <- heart_rate_patient %>%
+  summarise(
+    total_records = n(),
+    total_implausible = sum(plausibility_score == 0, na.rm = TRUE),
+    total_plausible = sum(plausibility_score == 1, na.rm = TRUE),
+    percentage_implausible = (total_implausible / total_records) * 100,
+    percentage_plausible = (total_plausible / total_records) * 100,
+    mean_value = mean(valuenum, na.rm = TRUE),
+    sd_value = sd(valuenum, na.rm = TRUE),
+    median_value = median(valuenum, na.rm = TRUE),
+    min_value = min(valuenum, na.rm = TRUE),
+    max_value = max(valuenum, na.rm = TRUE)
+  )
+print(plausibility_stats_patient)
+```
+
+The summary provides a statisitical overview of the plausibility scores and heart rate measurements, highlighting the extent of implausible changes.
+
+Step 5: Visualize longitudinal plausibility for a single patient
+
+Create a line plot of heart rate measurements over time for the single patient, highlighting implausible changes.
+
+```{r, eval=FALSE}
+ggplot(heart_rate_patient, aes(x = charttime, y = valuenum)) +
+  geom_line(color = "blue") +
+  geom_point(data = heart_rate_patient %>% filter(plausibility_score == 0), 
+             aes(x = charttime, y = valuenum), 
+             color = "red", 
+             size = 2) +
+  labs(title = "Implausible Changes in Heart Rate Measurements for Single Patient",
+       x = "Time",
+       y = "Heart Rate (bpm)") +
+  theme_minimal()
+```
+
+The plot provides a comprehensive view of heart rate measurements for the single patient, with implausible changes highlighted for easy identification. 
+
+**Actions taken**:
+
+All records identified with implausible changes in measurements, indicated by a plausibility score of 0, are flagged fur further investigation. This involves examining the specific records where measurement changes exceed the defined threshold, indicating potential errors or anomalies.
+
+### 5.3. Temporal variability screening (using the EHRtemporalVariability R package)
+**Objective**:
+
+Temporal variability analysis is a comprehensive approach to understanding and visualizing the variability and trends in clinical data over time across an entire data set or specific cohorts. Using the EHRtemporalvariability package in R, this analysis aggregates data into predefined time intervals (such as daily, weekly, or monthly) and computes statistical summaries (such as mean, median, and variance) for each interval. By calculating temporal variability indices and comparing these indices across different groups or time periods, temporal variability analysis helps identify broader trends, shifts, and patterns in data collection and recording practices. This method is essential for uncovering systemic issues, understanding changes in clinical protocols, and ensuring the stability of large-scale healthcare data sets. Through detailed visualizations and comparative analyses, temporal variability analysis provides valuable insights into the dynamics of clinical data sets over time. 
+
+**Method**:
+
+The following code provides a general approach to performing temporal variability analysis on a data set containing ICD-9 codes. This example assumes you have a data set with columns or patient ID, admission date, and ICD-9 codes. 
+This example demonstrates how to analyze and visualize the temporal variability of ICD-9 codes, providing insights into their stability and trends over time. 
+
+Step 1: Prepare the data
+
+Ensure the date column is in the correct format for analysis.
+
+```{r, eval=FALSE}
+# Ensure the date column is in Date format (assuming your date column is named 'admit_date')
+icd_data$admit_date <- as.Date(icd_data$admit_date)
+```
+
+This step converts the 'admit_date' column to the 'Date' format, making it easier to work with dates in subsequent steps.
+
+Step 2: Aggregate ICD-9 code frequencies by time
+
+Group the data by time intervals (e.g., monthly or yearly) and calculate the frequency of each ICD-9 code.
+
+```{r, eval=FALSE}
+# Aggregate data by month
+icd_monthly <- icd_data %>%
+  mutate(Month = floor_date(admit_date, "month")) %>%
+  group_by(Month, icd9_code) %>%
+  summarise(Frequency = n(), .groups = 'drop')
+
+# Or aggregate data by year
+icd_yearly <- icd_data %>%
+  mutate(Year = year(ADMITTIME)) %>%
+  group_by(Year, ICD9_CODE) %>%
+  summarise(Frequency = n(), .groups = 'drop')
+
+# View the aggregated data
+head(icd_yearly)
+
+# View the aggregated data
+head(icd_monthly)
+```
+
+This step aggregates the ICD-9 code data by month or year. It calculates the frequency of each ICD-9 code in each time interval, giving an overview of how often each code appears over time.
+
+Step 3: Calculate temporal variability
+
+Compute summary statistics (mean, standard deviation, median, min, max) for the frequency of each ICD-9 code over the aggregated time intervals.
+
+```{r, eval=FALSE}
+# Calculate summary statistics for each ICD-9 code
+icd_summary <- icd_monthly %>%
+  group_by(icd9_code) %>%
+  summarise(
+    Mean_Frequency = mean(Frequency),
+    SD_Frequency = sd(Frequency),
+    Median_Frequency = median(Frequency),
+    Min_Frequency = min(Frequency),
+    Max_Frequency = max(Frequency),
+    .groups = 'drop'
+  )
+
+# View the summary statistics
+head(icd_summary)
+```
+
+This step calculates the mean, standard deviation, median, minimum, and maximum frequency of each ICD-9 code over time. These summary statistics help to understand the overall variability and distribution of each code. 
+
+Step 4: Plot temporal variability
+
+Visualize the temporal variability of ICD-9 codes using line plots. 
+
+```{r, eval=FALSE}
+# Plot frequency of a specific ICD-9 code over time (replace '250.00' with a real ICD-9 code from your dataset)
+ggplot(icd_monthly %>% filter(icd9_code == '250.00'), aes(x = Month, y = Frequency)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Frequency of ICD-9 Code 250.00 Over Time",
+       x = "Month",
+       y = "Frequency") +
+  theme_minimal()
+
+# Plot temporal variability for the top 5 most frequent ICD-9 codes
+top_icd9_codes <- icd_monthly %>%
+  group_by(icd9_code) %>%
+  summarise(Total_Frequency = sum(Frequency), .groups = 'drop') %>%
+  top_n(5, Total_Frequency) %>%
+  pull(icd9_code)
+
+ggplot(icd_monthly %>% filter(icd9_code %in% top_icd9_codes), aes(x = Month, y = Frequency, color = icd9_code)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Temporal Variability of Top 5 ICD-9 Codes",
+       x = "Month",
+       y = "Frequency",
+       color = "ICD-9 Code") +
+  theme_minimal()
+```
+
+
+**Explanation**:
+
+- The first plot shows the frequency of a specific ICD-9 code (e.g., '250.00') over time, providing a visual representation of how its occurrence changes month by month.
+- The second plot visualizes the temporal variability of the top 5 most frequent ICD-9 codes, showing trends and patterns in their frequencies over time. 
+
+**Actions taken**:
+
+Variability issues identified through the analysis are investigated to understand their root causes. This may involve reviewing changes in clinical protocols, data entry practices, or external factors affecting data collection.
+
+
+# 6. Representativeness
+### 6.1. Patient suitability
+
+PROVIDE TEXT SPECIFIC TOWARDS TRAINING AI MODELS, WHICH IS THE FIT FOR PURPOSE ASPECT IN THIS METHODOLOGY.
+TEXT EXPLAINS WE WILL USE CODE AND MIMIC AS EXAMPLE TO PERFORM THIS METHODOLOGY.
+
+**Data preparation**
+
+```{r, eval=FALSE}
+patient_data <- PATIENTS %>%
+  inner_join(ADMISSIONS, by = "subject_id")
+```
+
+**Age distribution**
+
+Calculates and plots the age distribution, including mean, median, mode, and range.
+
+```{r, eval=FALSE}
+# Calculate age from DOB and ADMITTIME
+patient_data <- patient_data %>%
+  mutate(age = as.numeric(difftime(ADMITTIME, DOB, units = "weeks")) / 52.25)
+
+# Filter out unrealistic ages if this is needed
+patient_data <- patient_data %>%
+  filter(age >= 0 & age <= 120)
+```
+
+```{r, eval=FALSE}
+# Age distribution
+age_stats <- patient_data %>%
+  summarise(
+    Mean_Age = mean(age, na.rm = TRUE),
+    Median_Age = median(age, na.rm = TRUE),
+    Mode_Age = as.numeric(names(sort(table(age), decreasing = TRUE)[1])),
+    Age_Range = paste(min(age, na.rm = TRUE), max(age, na.rm = TRUE), sep = " - ")
+  )
+
+# Plot age distribution
+ggplot(patient_data, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Age Distribution of Patients", x = "Age", y = "Count") +
+  theme_minimal()
+```
+
+**Gender distribution**
+
+Calculates and plots the distribution of genders, including count and percentage.
+
+```{r, eval=FALSE}
+# Gender distribution
+gender_stats <- patient_data %>%
+  group_by(gender) %>%
+  summarise(
+    Count = n(),
+    Percentage = n() / nrow(patient_data) * 100
+  )
+
+# Plot gender distribution
+ggplot(gender_stats, aes(x = gender, y = Percentage, fill = gender)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  labs(title = "Gender Distribution of Patients", x = "Gender", y = "Percentage") +
+  theme_minimal()
+```
+
+**Ethnicity distribution**
+
+Calculates and plots the distribution of ethnic and racial groups.
+
+```{r, eval=FALSE}
+# Ethnicity distribution
+ethnicity_stats <- patient_data %>%
+  group_by(ethnicity) %>%
+  summarise(
+    Count = n(),
+    Percentage = n() / nrow(patient_data) * 100
+  )
+
+# Plot ethnicity distribution
+ggplot(ethnicity_stats, aes(x = ethnicity, y = Percentage, fill = ethnicity)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  labs(title = "Ethnicity Distribution of Patients", x = "Ethnicity", y = "Percentage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Religion distribution**
+
+Calculates and plots the distribution of religion groups.
+
+```{r, eval=FALSE}
+# Religion distribution
+religion_stats <- patient_data %>%
+  group_by(religion) %>%
+  summarise(
+    Count = n(),
+    Percentage = n() / nrow(patient_data) * 100
+  )
+
+# Plot religion distribution
+ggplot(religion_stats, aes(x = religion, y = Percentage, fill = religion)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  labs(title = "Religion Distribution of Patients", x = "Religion", y = "Percentage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+**Language distribution**
+
+Calculates and plots the distribution of language groups. 
+
+```{r, eval=FALSE}
+# Language distribution
+language_stats <- patient_data %>%
+  group_by(language) %>%
+  summarise(
+    Count = n(),
+    Percentage = n() / nrow(patient_data) * 100
+  )
+
+# Plot language distribution
+ggplot(language_stats, aes(x = language, y = Percentage, fill = language)) +
+  geom_bar(stat = "identity", color = "black", alpha = 0.7) +
+  labs(title = "Religion Distribution of Patients", x = "Religion", y = "Percentage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+
+
+
+### 6.2. Disease suitability
+
